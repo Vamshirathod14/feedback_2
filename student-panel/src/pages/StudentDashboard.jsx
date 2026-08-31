@@ -5,6 +5,11 @@ import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import './StudentDashboard.css';
 
+// =============================================
+// API BASE URL - CHANGE THIS TO YOUR BACKEND URL
+// =============================================
+const API_BASE_URL = 'https://feedback-2-backend.onrender.com';
+
 const QUESTIONS = [
   "Punctuality of teacher",
   "Explanation of the topic/concepts",
@@ -58,7 +63,7 @@ function StudentDashboard({ studentData, onLogout }) {
   const loadSemesters = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get("https://feedback-mlan.onrender.com/student-semesters", {
+      const res = await axios.get(`${API_BASE_URL}/student-semesters`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setSemesters(res.data);
@@ -71,7 +76,7 @@ function StudentDashboard({ studentData, onLogout }) {
   const checkRoundAvailability = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get(`https://feedback-mlan.onrender.com/round-status?class=${selectedSemester}&branch=${studentData.branch}&academicYear=${studentData.academicYear}`, {
+      const res = await axios.get(`${API_BASE_URL}/round-status?class=${selectedSemester}&branch=${studentData.branch}&academicYear=${studentData.academicYear}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -92,7 +97,7 @@ function StudentDashboard({ studentData, onLogout }) {
   const loadSubjects = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get("https://feedback-mlan.onrender.com/subjects", {
+      const res = await axios.get(`${API_BASE_URL}/subjects`, {
         headers: { Authorization: `Bearer ${token}` },
         params: { 
           class: selectedSemester, 
@@ -116,7 +121,7 @@ function StudentDashboard({ studentData, onLogout }) {
   const checkSubmissionStatus = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res1 = await axios.get("https://feedback-mlan.onrender.com/feedbackcheck", {
+      const res1 = await axios.get(`${API_BASE_URL}/feedbackcheck`, {
         headers: { Authorization: `Bearer ${token}` },
         params: { 
           class: selectedSemester, 
@@ -126,7 +131,7 @@ function StudentDashboard({ studentData, onLogout }) {
         }
       });
       
-      const res2 = await axios.get("https://feedback-mlan.onrender.com/feedbackcheck", {
+      const res2 = await axios.get(`${API_BASE_URL}/feedbackcheck`, {
         headers: { Authorization: `Bearer ${token}` },
         params: { 
           class: selectedSemester, 
@@ -211,7 +216,9 @@ function StudentDashboard({ studentData, onLogout }) {
     
     const fbdata = subjects.map((subj, idx) => ({
       subject: subj.subject,
+      subjectCode: subj.subjectCode,
       faculty: subj.faculty,
+      facultyId: subj.facultyId,
       answers: QUESTIONS.map((q, qidx) => ({
         question: q,
         score: feedbacks[idx][qidx]
@@ -220,7 +227,7 @@ function StudentDashboard({ studentData, onLogout }) {
     
     try {
       const token = localStorage.getItem('token');
-      await axios.post("https://feedback-mlan.onrender.com/feedback", {
+      await axios.post(`${API_BASE_URL}/feedback`, {
         class: selectedSemester,
         branch: studentData.branch,
         academicYear: studentData.academicYear,

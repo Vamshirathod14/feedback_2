@@ -16,6 +16,12 @@ const corsOptions = {
       'http://feedback-student-panel.onrender.com',
       'https://feedback-mlan.onrender.com',
       'http://feedback-mlan.onrender.com',
+      'https://feedback-2-backend.onrender.com',
+      'http://feedback-2-backend.onrender.com',
+      'https://feedback-2-student.onrender.com',
+      'http://feedback-2-student.onrender.com',
+      'https://feedback-2-admin.onrender.com',
+      'http://feedback-2-admin.onrender.com',
       'http://localhost:3000',
       'http://localhost:3001',
       'http://localhost:4000',
@@ -83,7 +89,9 @@ const StudentSchema = new mongoose.Schema({
 
 const SubjectSchema = new mongoose.Schema({
   subject: String,
+  subjectCode: String,
   faculty: String,
+  facultyId: String,
   class: String,
   branch: String,
   academicYear: String,
@@ -105,7 +113,9 @@ const FeedbackSchema = new mongoose.Schema({
   branch: String,
   academicYear: String,
   subject: String,
+  subjectCode: String,
   faculty: String,
+  facultyId: String,
   answers: [{ question: String, score: Number }],
   suggestion: String,
   round: { type: String, enum: ['initial', 'final'], default: 'initial' },
@@ -145,23 +155,23 @@ const upload = multer({
   }
 });
 
- 
-// Then use formattedAcademicYear in queries
-
-// Helper: Standardize academic year format
- // Helper: Standardize academic year format
+// =============================================
+// FIXED: Helper: Standardize academic year format
+// =============================================
 function formatAcademicYear(year) {
   if (!year) return year;
   const cleanYear = year.toString().trim();
-  if (/^\d{4}-\d{4}$/.test(cleanYear)) return cleanYear;
+  // If it's already in YYYY-YYYY format, return as-is
+  if (/^\d{4}-\d{4}$/.test(cleanYear)) {
+    return cleanYear;
+  }
+  // If it's just YYYY, convert to YYYY-YYYY
   if (/^\d{4}$/.test(cleanYear)) {
     const startYear = parseInt(cleanYear);
-    return `${startYear}-${startYear + 4}`;
+    return `${startYear}-${startYear + 1}`; // Fixed: +1 instead of +4
   }
   return cleanYear;
 }
-
-
 
 // Middleware to verify JWT
 const authenticateToken = (req, res, next) => {
@@ -181,7 +191,7 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// Simple CSV parser function
+// Simple CSV parser function - FIXED for new format
 function parseCSV(csvString, isSubjects = false) {
   try {
     const lines = csvString.split('\n').filter(line => line.trim());
@@ -210,32 +220,45 @@ function parseCSV(csvString, isSubjects = false) {
       }
       values.push(current.trim());
       
-      // Skip header row
+      // Skip header row - check for any of the possible headers
       const firstValue = values[0] ? values[0].toLowerCase() : '';
-      if (i === 0 && (firstValue === 'name' || firstValue === 'subject' || firstValue === 'hallticket')) {
+      if (i === 0 && (
+        firstValue === 'name' || 
+        firstValue === 'subject' || 
+        firstValue === 'hallticket' || 
+        firstValue === 'faculty id' ||
+        firstValue === 'facultyid' ||
+        firstValue === 'faculty_id'
+      )) {
         continue;
       }
       
-      if (isSubjects && values.length >= 2) {
-        const subject = values[0] || '';
-        const faculty = values[1] || '';
+      if (isSubjects && values.length >= 4) {
+        // Format: Faculty ID, Faculty Name, Subject Code, Subject Name
+        const facultyId = values[0] || '';
+        const facultyName = values[1] || '';
+        const subjectCode = values[2] || '';
+        const subjectName = values[3] || '';
         
-        if (subject && faculty) {
+        if (facultyId && facultyName && subjectCode && subjectName) {
           result.push({
-            subject: subject,
-            faculty: faculty
+            facultyId: facultyId.trim(),
+            facultyName: facultyName.trim(),
+            subjectCode: subjectCode.trim(),
+            subjectName: subjectName.trim()
           });
         }
       } else if (!isSubjects && values.length >= 3) {
+        // Format: Name, Hallticket, Branch
         const name = values[0] || '';
         const hallticket = values[1] || '';
         const branch = values[2] || '';
         
         if (name && hallticket && branch) {
           result.push({
-            name: name,
-            hallticket: hallticket,
-            branch: branch
+            name: name.trim(),
+            hallticket: hallticket.trim(),
+            branch: branch.trim()
           });
         }
       }
@@ -255,6 +278,49 @@ app.get('/health', (req, res) => {
     message: 'Server is running',
     timestamp: new Date().toISOString()
   });
+});
+
+// =============================================
+// GET STUDENT BY HALLTICKET (for student login)
+// =============================================
+app.get('/student-by-hallticket/:hallticket', async (req, res) => {
+  try {
+    const { hallticket } = req.params;
+    
+    if (!hallticket) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Hallticket is required' 
+      });
+    }
+    
+    const normalizedHallticket = hallticket.trim();
+    const student = await Student.findOne({ hallticket: normalizedHallticket });
+    
+    if (!student) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Student not found' 
+      });
+    }
+    
+    res.json({
+      success: true,
+      student: {
+        name: student.name,
+        hallticket: student.hallticket,
+        branch: student.branch,
+        academicYear: student.academicYear,
+        email: student.email || null
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching student by hallticket:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Internal server error' 
+    });
+  }
 });
 
 // =============================================
@@ -546,7 +612,9 @@ app.post('/api/timetable', async (req, res) => {
         },
         {
           subject: entry.subjectCode,
+          subjectCode: entry.subjectCode,
           faculty: entry.facultyId,
+          facultyId: entry.facultyId,
           class: cls,
           branch,
           academicYear
@@ -606,7 +674,9 @@ app.put('/api/timetable/:id', async (req, res) => {
     for (const entry of entries) {
       await Subject.create({
         subject: entry.subjectCode,
+        subjectCode: entry.subjectCode,
         faculty: entry.facultyId,
+        facultyId: entry.facultyId,
         class: timetable.class,
         branch: timetable.branch,
         academicYear: timetable.academicYear
@@ -687,305 +757,11 @@ app.post('/api/migrate-subjects-to-master', async (req, res) => {
     res.status(500).json({ error: 'Migration failed: ' + error.message });
   }
 });
+
 // =============================================
 // FILE UPLOAD ENDPOINTS
 // =============================================
-// Add this to your server.js - Debug endpoint to find missing faculties
- // =============================================
-// STUDENT MANAGEMENT ENDPOINTS
-// =============================================
 
-// Get all students with registration status
-app.get('/admin/students-with-status', async (req, res) => {
-  try {
-    const { class: cls, branch, academicYear } = req.query;
-    
-    if (!cls || !branch || !academicYear) {
-      return res.status(400).json({ error: 'Class, branch, and academic year are required' });
-    }
-    
-    const students = await Student.find({ 
-      branch: branch, 
-      academicYear: academicYear 
-    }).select('name hallticket branch academicYear email -_id');
-    
-    const studentsWithStatus = students.map(student => ({
-      name: student.name,
-      hallticket: student.hallticket,
-      branch: student.branch,
-      academicYear: student.academicYear,
-      registered: !!student.email,
-      email: student.email || null
-    }));
-    
-    res.json(studentsWithStatus);
-  } catch (error) {
-    console.error('Failed to fetch students:', error);
-    res.status(500).json({ error: 'Failed to fetch students' });
-  }
-});
-
-// Add a single student
-app.post('/admin/add-student', async (req, res) => {
-  try {
-    const { name, hallticket, branch, academicYear, class: cls } = req.body;
-    
-    if (!name || !hallticket || !branch || !academicYear || !cls) {
-      return res.status(400).json({ error: 'All fields are required' });
-    }
-
-    // Check if student already exists in this academic year
-    const existingStudent = await Student.findOne({ 
-      hallticket: hallticket,
-      academicYear: academicYear 
-    });
-    
-    if (existingStudent) {
-      return res.status(400).json({ error: 'Student with this hallticket already exists for this academic year' });
-    }
-
-    // Create new student
-    const student = await Student.create({
-      name,
-      hallticket,
-      branch,
-      academicYear,
-      password: bcrypt.hashSync(hallticket, 10) // Default password is hallticket
-    });
-
-    // Create feedback submission record
-    await FeedbackSubmission.findOneAndUpdate(
-      {
-        hallticket: hallticket,
-        class: cls,
-        branch: branch,
-        academicYear: academicYear
-      },
-      {
-        hallticket: hallticket,
-        class: cls,
-        branch: branch,
-        academicYear: academicYear,
-        initial: false,
-        final: false
-      },
-      { upsert: true, new: true }
-    );
-
-    res.json({ 
-      success: true, 
-      message: 'Student added successfully',
-      student: {
-        name: student.name,
-        hallticket: student.hallticket,
-        branch: student.branch,
-        academicYear: student.academicYear
-      }
-    });
-  } catch (error) {
-    console.error('Error adding student:', error);
-    res.status(500).json({ error: 'Failed to add student: ' + error.message });
-  }
-});
-
-// Delete a student
-app.delete('/admin/delete-student/:hallticket', async (req, res) => {
-  try {
-    const { hallticket } = req.params;
-    const { academicYear } = req.query;
-    
-    if (!hallticket || !academicYear) {
-      return res.status(400).json({ error: 'Hallticket and academic year are required' });
-    }
-
-    // Delete student
-    const student = await Student.findOneAndDelete({ 
-      hallticket: hallticket,
-      academicYear: academicYear 
-    });
-
-    if (!student) {
-      return res.status(404).json({ error: 'Student not found' });
-    }
-
-    // Delete feedback submissions
-    await FeedbackSubmission.deleteMany({ 
-      hallticket: hallticket,
-      academicYear: academicYear 
-    });
-
-    // Delete feedback responses
-    await Feedback.deleteMany({ 
-      hallticket: hallticket,
-      academicYear: academicYear 
-    });
-
-    res.json({ 
-      success: true, 
-      message: 'Student deleted successfully',
-      student: {
-        name: student.name,
-        hallticket: student.hallticket
-      }
-    });
-  } catch (error) {
-    console.error('Error deleting student:', error);
-    res.status(500).json({ error: 'Failed to delete student: ' + error.message });
-  }
-});
-
-// Bulk delete students
-app.post('/admin/bulk-delete-students', async (req, res) => {
-  try {
-    const { halltickets, academicYear } = req.body;
-    
-    if (!halltickets || !Array.isArray(halltickets) || halltickets.length === 0 || !academicYear) {
-      return res.status(400).json({ error: 'Halltickets array and academic year are required' });
-    }
-
-    // Delete students
-    const result = await Student.deleteMany({ 
-      hallticket: { $in: halltickets },
-      academicYear: academicYear 
-    });
-
-    // Delete feedback submissions
-    await FeedbackSubmission.deleteMany({ 
-      hallticket: { $in: halltickets },
-      academicYear: academicYear 
-    });
-
-    // Delete feedback responses
-    await Feedback.deleteMany({ 
-      hallticket: { $in: halltickets },
-      academicYear: academicYear 
-    });
-
-    res.json({ 
-      success: true, 
-      message: `Successfully deleted ${result.deletedCount} students`,
-      deletedCount: result.deletedCount
-    });
-  } catch (error) {
-    console.error('Error bulk deleting students:', error);
-    res.status(500).json({ error: 'Failed to delete students: ' + error.message });
-  }
-});
-
-// Update student information
-app.put('/admin/update-student/:hallticket', async (req, res) => {
-  try {
-    const { hallticket } = req.params;
-    const { name, branch, academicYear, email, class: cls } = req.body;
-    
-    if (!hallticket || !academicYear) {
-      return res.status(400).json({ error: 'Hallticket and academic year are required' });
-    }
-
-    const student = await Student.findOne({ 
-      hallticket: hallticket,
-      academicYear: academicYear 
-    });
-
-    if (!student) {
-      return res.status(404).json({ error: 'Student not found' });
-    }
-
-    // Update fields
-    if (name) student.name = name;
-    if (branch) student.branch = branch;
-    if (email) student.email = email;
-
-    await student.save();
-
-    res.json({ 
-      success: true, 
-      message: 'Student updated successfully',
-      student: {
-        name: student.name,
-        hallticket: student.hallticket,
-        branch: student.branch,
-        academicYear: student.academicYear,
-        email: student.email
-      }
-    });
-  } catch (error) {
-    console.error('Error updating student:', error);
-    res.status(500).json({ error: 'Failed to update student: ' + error.message });
-  }
-});
-
-// Reset student password
-app.post('/admin/reset-student-password/:hallticket', async (req, res) => {
-  try {
-    const { hallticket } = req.params;
-    const { academicYear } = req.body;
-    
-    if (!hallticket || !academicYear) {
-      return res.status(400).json({ error: 'Hallticket and academic year are required' });
-    }
-
-    const student = await Student.findOne({ 
-      hallticket: hallticket,
-      academicYear: academicYear 
-    });
-
-    if (!student) {
-      return res.status(404).json({ error: 'Student not found' });
-    }
-
-    // Reset password to hallticket
-    student.password = bcrypt.hashSync(hallticket, 10);
-    await student.save();
-
-    res.json({ 
-      success: true, 
-      message: 'Password reset successfully. New password is the hallticket number.',
-      student: {
-        name: student.name,
-        hallticket: student.hallticket
-      }
-    });
-  } catch (error) {
-    console.error('Error resetting password:', error);
-    res.status(500).json({ error: 'Failed to reset password: ' + error.message });
-  }
-});
-
-// Get student details by hallticket
-app.get('/admin/student/:hallticket', async (req, res) => {
-  try {
-    const { hallticket } = req.params;
-    const { academicYear } = req.query;
-    
-    if (!hallticket || !academicYear) {
-      return res.status(400).json({ error: 'Hallticket and academic year are required' });
-    }
-
-    const student = await Student.findOne({ 
-      hallticket: hallticket,
-      academicYear: academicYear 
-    }).select('name hallticket branch academicYear email -_id');
-
-    if (!student) {
-      return res.status(404).json({ error: 'Student not found' });
-    }
-
-    // Get feedback submission status
-    const submission = await FeedbackSubmission.findOne({
-      hallticket: hallticket,
-      academicYear: academicYear
-    }).select('initial final initialDate finalDate -_id');
-
-    res.json({
-      student,
-      submission: submission || { initial: false, final: false }
-    });
-  } catch (error) {
-    console.error('Error fetching student:', error);
-    res.status(500).json({ error: 'Failed to fetch student details' });
-  }
-});
 // Upload students CSV
 app.post('/upload-students', upload.single('file'), async (req, res) => {
   try {
@@ -1126,7 +902,7 @@ app.post('/upload-students', upload.single('file'), async (req, res) => {
   }
 });
 
-// Upload subjects CSV
+// Upload subjects CSV - FIXED
 app.post('/upload-subjects', upload.single('file'), async (req, res) => {
   try {
     const { class: cls, branch, academicYear } = req.body;
@@ -1153,14 +929,29 @@ app.post('/upload-subjects', upload.single('file'), async (req, res) => {
       academicYear: academicYear 
     });
     
-    // Prepare subjects with class/branch/year info
-    const subjectsToInsert = subjects.map(subject => ({
-      subject: subject.subject,
-      faculty: subject.faculty,
-      class: cls,
-      branch: branch,
-      academicYear: academicYear
-    }));
+    // Upsert FacultyMaster entries and prepare subjects
+    const subjectsToInsert = [];
+    for (const subject of subjects) {
+      // Upsert FacultyMaster using Faculty ID as unique identifier
+      await FacultyMaster.findOneAndUpdate(
+        { facultyId: subject.facultyId },
+        { 
+          facultyId: subject.facultyId,
+          facultyName: subject.facultyName
+        },
+        { upsert: true, new: true }
+      );
+      
+      subjectsToInsert.push({
+        subject: subject.subjectName,
+        subjectCode: subject.subjectCode,
+        faculty: subject.facultyName,
+        facultyId: subject.facultyId,
+        class: cls,
+        branch: branch,
+        academicYear: academicYear
+      });
+    }
 
     // Insert all subjects
     let insertedCount = 0;
@@ -1287,7 +1078,7 @@ app.post('/admin/login', async (req, res) => {
   }
 });
 
-// Student login
+// Student login - FIXED
 app.post('/login', async (req, res) => {
   try {
     const { hallticket, password } = req.body;
@@ -1296,7 +1087,8 @@ app.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Hallticket and password are required' });
     }
     
-    const student = await Student.findOne({ hallticket });
+    const normalizedHallticket = hallticket.trim();
+    const student = await Student.findOne({ hallticket: normalizedHallticket });
     if (!student) {
       return res.status(400).json({ error: 'Invalid Hall Ticket Number' });
     }
@@ -1338,14 +1130,12 @@ app.post('/login', async (req, res) => {
 // =============================================
 
 // Get all unique faculties across all classes and branches
-// Get all unique faculties across all classes and branches - FIXED VERSION
 app.get('/all-faculties', async (req, res) => {
   try {
     const faculties = await Subject.distinct('faculty');
     
     console.log(`🔍 Raw faculties found: ${faculties.length}`);
     
-    // More inclusive filtering - only remove obviously invalid entries
     const filteredFaculties = faculties
       .filter(faculty => {
         if (!faculty || typeof faculty !== 'string') return false;
@@ -1353,11 +1143,9 @@ app.get('/all-faculties', async (req, res) => {
         const cleanFaculty = faculty.trim();
         if (cleanFaculty === '') return false;
         
-        // ONLY exclude obvious hallticket patterns (more specific)
         if (cleanFaculty.match(/^25C01A73\d{2}$/)) return false;
         if (cleanFaculty.match(/^2[0-9][A-Z0-9]{8,10}$/)) return false;
         
-        // ONLY exclude very clear invalid patterns
         const invalidPatterns = [
           'unknown', 'not assigned', 'not available', 'tba', 'to be announced', 
           'pending', 'null', 'undefined', 'test', 'demo'
@@ -1365,9 +1153,6 @@ app.get('/all-faculties', async (req, res) => {
         
         const lowerFaculty = cleanFaculty.toLowerCase();
         if (invalidPatterns.some(pattern => lowerFaculty === pattern)) return false;
-        
-        // Allow numbers if they contain other characters (like "CS101")
-        // Allow single characters if they're part of names (like "A", "B", etc.)
         
         return true;
       })
@@ -1401,7 +1186,6 @@ app.get('/faculty-variations', async (req, res) => {
       )
       .sort((a, b) => a.localeCompare(b));
     
-    // Group similar faculty names
     const groups = {};
     
     filteredFaculties.forEach(faculty => {
@@ -1452,19 +1236,16 @@ app.put('/update-faculty-name', async (req, res) => {
       return res.status(400).json({ error: 'Original and new names are the same' });
     }
 
-    // Build update criteria
     const updateCriteria = { faculty: originalName };
     if (cls) updateCriteria.class = cls;
     if (branch) updateCriteria.branch = branch;
     if (academicYear) updateCriteria.academicYear = academicYear;
 
-    // Update subjects
     const subjectsResult = await Subject.updateMany(
       updateCriteria,
       { $set: { faculty: newName } }
     );
 
-    // Update feedback records
     const feedbackResult = await Feedback.updateMany(
       updateCriteria,
       { $set: { faculty: newName } }
@@ -1492,7 +1273,6 @@ app.get('/faculty-history', async (req, res) => {
     const { faculty, class: cls, branch, academicYear } = req.query;
     if (!faculty) return res.status(400).json({ error: 'Faculty name is required' });
 
-    // Build subject match criteria
     const subjectMatchCriteria = { faculty: faculty.trim() };
     if (cls) subjectMatchCriteria.class = cls;
     if (branch) subjectMatchCriteria.branch = branch;
@@ -1504,7 +1284,6 @@ app.get('/faculty-history', async (req, res) => {
     const facultyHistory = [];
     for (const subject of subjects) {
       try {
-        // Fetch ALL feedback for this subject (both rounds)
         const feedbacks = await Feedback.find({
           faculty: subject.faculty,
           subject: subject.subject,
@@ -1529,11 +1308,9 @@ app.get('/faculty-history', async (req, res) => {
           continue;
         }
 
-        // Separate initial and final feedbacks
         const initialFeedbacks = feedbacks.filter(f => (f.round || '').toLowerCase().includes('initial'));
         const finalFeedbacks = feedbacks.filter(f => (f.round || '').toLowerCase().includes('final'));
 
-        // Calculate initial performance
         let initialPercentage = 0;
         if (initialFeedbacks.length > 0) {
           const totalScore = initialFeedbacks.reduce((sum, fb) => 
@@ -1542,7 +1319,6 @@ app.get('/faculty-history', async (req, res) => {
           initialPercentage = totalQuestions > 0 ? (totalScore / totalQuestions * 100 / 5) : 0;
         }
 
-        // Calculate final performance
         let finalPercentage = 0;
         if (finalFeedbacks.length > 0) {
           const totalScore = finalFeedbacks.reduce((sum, fb) => 
@@ -1563,9 +1339,8 @@ app.get('/faculty-history', async (req, res) => {
           studentCount,
           subjectsHandled: [subject.subject],
           labs: subject.subject.toLowerCase().includes('lab') ? [subject.subject] : [],
-          overallPercentage: finalPercentage || initialPercentage, // Legacy fallback
+          overallPercentage: finalPercentage || initialPercentage,
           round: finalFeedbacks.length > 0 ? 'final' : initialFeedbacks.length > 0 ? 'initial' : 'no-data',
-          // NEW: Separate initial/final for frontend table
           initialPercentage: parseFloat(initialPercentage.toFixed(2)),
           finalPercentage: parseFloat(finalPercentage.toFixed(2)),
           hasInitial: initialFeedbacks.length > 0,
@@ -1574,7 +1349,6 @@ app.get('/faculty-history', async (req, res) => {
         });
       } catch (error) {
         console.error('Subject processing error:', error);
-        // Fallback record
         facultyHistory.push({
           faculty: subject.faculty,
           subject: subject.subject,
@@ -1593,7 +1367,6 @@ app.get('/faculty-history', async (req, res) => {
       }
     }
 
-    // Sort: academic year desc, class asc
     facultyHistory.sort((a, b) => {
       if (a.academicYear !== b.academicYear) {
         return b.academicYear.localeCompare(a.academicYear);
@@ -1608,24 +1381,19 @@ app.get('/faculty-history', async (req, res) => {
   }
 });
 
-
-// Clean up faculty data - REMOVE HALLTICKETS FROM FACULTY FIELD
+// Clean up faculty data
 app.delete('/cleanup-faculty-data', async (req, res) => {
   try {
-    // Pattern to match hallticket numbers
     const hallticketPattern = /^25C01A73\d{2}$/;
     
-    // Find and delete subjects where faculty is a hallticket
     const deleteResult = await Subject.deleteMany({
       faculty: { $regex: hallticketPattern }
     });
     
-    // Also clean up any feedback records with hallticket as faculty
     const feedbackDeleteResult = await Feedback.deleteMany({
       faculty: { $regex: hallticketPattern }
     });
     
-    // Get updated faculty list
     const updatedFaculties = await Subject.distinct('faculty');
     const cleanedFaculties = updatedFaculties
       .filter(faculty => 
@@ -1708,7 +1476,7 @@ app.get('/feedback-counts', async (req, res) => {
   }
 });
 
-// Aggregate feedback for faculty (with round support)
+// Aggregate feedback for faculty
 app.get('/full-performance/:faculty', async (req, res) => {
   try {
     const { class: cls, branch, academicYear, round } = req.query;
@@ -1723,8 +1491,6 @@ app.get('/full-performance/:faculty', async (req, res) => {
       academicYear
     };
     if (round) matchCriteria.round = round;
-
-    console.log('Performance query:', matchCriteria); // DEBUG
 
     const agg = await Feedback.aggregate([
       { $match: matchCriteria },
@@ -1776,14 +1542,12 @@ app.get('/full-performance/:faculty', async (req, res) => {
       }
     ]);
 
-    console.log('Aggregation result:', agg.length); // DEBUG
-    res.json(agg); // Always returns array, even empty []
+    res.json(agg);
   } catch (error) {
     console.error('Performance aggregation ERROR:', error);
     res.status(500).json({ error: 'Failed to fetch performance data', details: error.message });
   }
 });
-
 
 // Get class-wise report
 app.get('/class-report', async (req, res) => {
@@ -1794,14 +1558,12 @@ app.get('/class-report', async (req, res) => {
       return res.status(400).json({ error: 'Class, branch, and academic year are required' });
     }
     
-    // Build match criteria
     const matchCriteria = { 
       class: cls,
       branch: branch,
       academicYear: academicYear
     };
     
-    // Add round filter if specified
     if (round) {
       matchCriteria.round = round;
     }
@@ -1850,13 +1612,11 @@ app.get('/department-report', async (req, res) => {
       return res.status(400).json({ error: 'Branch and academic year are required' });
     }
     
-    // Build match criteria
     const matchCriteria = { 
       branch: branch,
       academicYear: academicYear
     };
     
-    // Add round filter if specified
     if (round) {
       matchCriteria.round = round;
     }
@@ -1924,7 +1684,6 @@ app.get('/subjects', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Class, branch, and academic year are required' });
     }
     
-    // Verify the student has access to these subjects
     const student = await Student.findOne({ hallticket: req.user.hallticket });
     if (!student || student.branch !== branch || student.academicYear !== academicYear) {
       return res.status(403).json({ error: 'Unauthorized to access these subjects' });
@@ -1989,7 +1748,6 @@ app.post('/feedback', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Class, feedbacks, and round are required' });
     }
     
-    // Check if the round is enabled
     const roundControl = await RoundControl.findOne({ 
       class: cls, 
       branch: req.user.branch,
@@ -2000,13 +1758,11 @@ app.post('/feedback', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: `${round} feedback is not currently accepted` });
     }
     
-    // Verify student is in the correct branch and academic year
     const student = await Student.findOne({ hallticket: req.user.hallticket });
     if (!student || student.branch !== req.user.branch || student.academicYear !== req.user.academicYear) {
       return res.status(403).json({ error: 'Unauthorized to submit feedback for this branch/academic year' });
     }
     
-    // Check if already submitted for this round
     const submission = await FeedbackSubmission.findOne({ 
       hallticket: req.user.hallticket, 
       class: cls, 
@@ -2019,7 +1775,6 @@ app.post('/feedback', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: `Feedback already submitted for ${round} round this semester` });
     }
     
-    // Save all feedback entries with round information
     for (let fb of feedbacks) {
       await Feedback.create({
         hallticket: req.user.hallticket,
@@ -2027,14 +1782,15 @@ app.post('/feedback', authenticateToken, async (req, res) => {
         branch: req.user.branch,
         academicYear: req.user.academicYear,
         subject: fb.subject,
+        subjectCode: fb.subjectCode,
         faculty: fb.faculty,
+        facultyId: fb.facultyId,
         answers: fb.answers,
         suggestion,
         round: round
       });
     }
     
-    // Mark as submitted for the appropriate round
     const updateData = round === 'initial' 
       ? { initial: true, initialDate: new Date() } 
       : { final: true, finalDate: new Date() };
@@ -2202,7 +1958,6 @@ app.put('/admin/reset-student/:hallticket', async (req, res) => {
       return res.status(400).json({ error: 'Student is not registered yet' });
     }
     
-    // Clear email and password fields
     student.email = undefined;
     student.password = undefined;
     await student.save();
