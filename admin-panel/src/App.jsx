@@ -1,4 +1,4 @@
- import React, { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -27,6 +27,11 @@ import {
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import reportLogo from './vamshi.PNG';
+
+// =============================================
+// API BASE URL - CHANGE THIS TO YOUR BACKEND URL
+// =============================================
+const API_BASE_URL = 'https://feedback-2-backend.onrender.com';
 
 // Register ChartJS components
 ChartJS.register(
@@ -109,6 +114,11 @@ const [uploadLoading, setUploadLoading] = useState(false);
   const convertToGraduationYear = (academicYear, classSel) => {
     if (!academicYear) return "";
     
+    // If it's already in YYYY-YYYY format, return as-is
+    if (/^\d{4}-\d{4}$/.test(academicYear)) {
+      return academicYear;
+    }
+    
     const startYear = parseInt(academicYear.split('-')[0]);
     
     if (classSel) {
@@ -121,7 +131,7 @@ const [uploadLoading, setUploadLoading] = useState(false);
       }
     }
     
-    return `${startYear}-${startYear + 4}`;
+    return academicYear;
   };
 
   // Load feedback counts and round status when class, branch and academic year are selected
@@ -173,7 +183,7 @@ const handleSubjectsFileChange = (e) => {
   formData.append("academicYear", graduationYear);
   
   try {
-    const response = await axios.post("https://feedback-mlan.onrender.com/upload-students", formData, {
+    const response = await axios.post(`${API_BASE_URL}/upload-students`, formData, {
       onUploadProgress: (progressEvent) => {
         const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
         toast.info(`Uploading students... ${progress}%`);
@@ -219,7 +229,7 @@ const handleSubjectsFileChange = (e) => {
   formData.append("academicYear", graduationYear);
   
   try {
-    const response = await axios.post("https://feedback-mlan.onrender.com/upload-subjects", formData, {
+    const response = await axios.post(`${API_BASE_URL}/upload-subjects`, formData, {
       onUploadProgress: (progressEvent) => {
         const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
         toast.info(`Uploading subjects... ${progress}%`);
@@ -254,7 +264,7 @@ const handleSubjectsFileChange = (e) => {
     const graduationYear = convertToGraduationYear(academicYear, classSel);
     
     try {
-      const res = await axios.get(`https://feedback-mlan.onrender.com/faculties?class=${classSel}&branch=${branchSel}&academicYear=${graduationYear}`);
+      const res = await axios.get(`${API_BASE_URL}/faculties?class=${classSel}&branch=${branchSel}&academicYear=${graduationYear}`);
       setFacultyList(res.data);
     } catch (error) {
       console.error("Failed to load faculty list:", error);
@@ -266,7 +276,7 @@ const handleSubjectsFileChange = (e) => {
     try {
       const graduationYear = convertToGraduationYear(academicYear, classSel);
       
-      const res = await axios.get(`https://feedback-mlan.onrender.com/feedback-counts?class=${classSel}&branch=${branchSel}&academicYear=${graduationYear}`);
+      const res = await axios.get(`${API_BASE_URL}/feedback-counts?class=${classSel}&branch=${branchSel}&academicYear=${graduationYear}`);
       setFeedbackCounts(res.data);
     } catch (error) {
       console.error("Failed to load feedback counts:", error);
@@ -278,7 +288,7 @@ const handleSubjectsFileChange = (e) => {
     try {
       const graduationYear = convertToGraduationYear(academicYear, classSel);
       
-      const res = await axios.get(`https://feedback-mlan.onrender.com/round-status?class=${classSel}&branch=${branchSel}&academicYear=${graduationYear}`);
+      const res = await axios.get(`${API_BASE_URL}/round-status?class=${classSel}&branch=${branchSel}&academicYear=${graduationYear}`);
       setRoundStatus(res.data);
     } catch (error) {
       console.error("Failed to load round status:", error);
@@ -290,7 +300,7 @@ const handleSubjectsFileChange = (e) => {
     try {
       const graduationYear = convertToGraduationYear(academicYear, classSel);
       
-      const res = await axios.post(`https://feedback-mlan.onrender.com/round-control`, {
+      const res = await axios.post(`${API_BASE_URL}/round-control`, {
         class: classSel,
         branch: branchSel,
         academicYear: graduationYear,
@@ -322,7 +332,7 @@ const handleSubjectsFileChange = (e) => {
     const graduationYear = convertToGraduationYear(academicYear, classSel);
     console.log('Calling API:', `full-performance/${facultyToUse}`, { class: classSel, branch: branchSel, academicYear: graduationYear, round });
     
-    const res = await axios.get(`https://feedback-mlan.onrender.com/full-performance/${facultyToUse}`, {
+    const res = await axios.get(`${API_BASE_URL}/full-performance/${facultyToUse}`, {
       params: { class: classSel, branch: branchSel, academicYear: graduationYear, round }
     });
     
@@ -362,7 +372,7 @@ const handleSubjectsFileChange = (e) => {
     try {
       const graduationYear = convertToGraduationYear(academicYear, classSel);
       
-      const res = await axios.get(`https://feedback-mlan.onrender.com/full-performance/${selectedFaculty}`, {
+      const res = await axios.get(`${API_BASE_URL}/full-performance/${selectedFaculty}`, {
         params: { 
           class: classSel, 
           branch: branchSel, 
@@ -393,7 +403,7 @@ const handleSubjectsFileChange = (e) => {
     try {
       const graduationYear = convertToGraduationYear(academicYear, classSel);
       
-      const res = await axios.get(`https://feedback-mlan.onrender.com/class-report`, {
+      const res = await axios.get(`${API_BASE_URL}/class-report`, {
         params: { 
           class: classSel, 
           branch: branchSel, 
@@ -416,7 +426,7 @@ const handleSubjectsFileChange = (e) => {
     try {
       const graduationYear = convertToGraduationYear(academicYear, classSel);
       
-      const res = await axios.get(`https://feedback-mlan.onrender.com/department-report`, {
+      const res = await axios.get(`${API_BASE_URL}/department-report`, {
         params: { 
           branch: branchSel, 
           academicYear: graduationYear,
@@ -869,7 +879,7 @@ const getBarChartData = () => {
       >
         {uploadLoading ? '⏳ Uploading...' : '📤 Upload Subjects'}
       </button>
-      <p>CSV format: subject, faculty</p>
+      <p>CSV format: Faculty ID,Faculty Name,Subject Code,Subject Name</p>
       <p className="note">Note: Initial Round will be automatically enabled after uploading subjects</p>
     </div>
   </div>
