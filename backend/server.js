@@ -78,14 +78,19 @@ const AdminSchema = new mongoose.Schema({
 
 const Admin = mongoose.model('Admin', AdminSchema);
 
+// Student Schema with Class Field
 const StudentSchema = new mongoose.Schema({
   name: String,
-  hallticket: { type: String, unique: true },
+  hallticket: { type: String },
+  class: String,
   branch: String,
   academicYear: String,
   email: String,
   password: String
 });
+
+// Make hallticket + academicYear + class unique
+StudentSchema.index({ hallticket: 1, academicYear: 1, class: 1 }, { unique: true });
 
 const SubjectSchema = new mongoose.Schema({
   subject: String,
@@ -155,20 +160,16 @@ const upload = multer({
   }
 });
 
-// =============================================
-// FIXED: Helper: Standardize academic year format
-// =============================================
+// Helper: Standardize academic year format
 function formatAcademicYear(year) {
   if (!year) return year;
   const cleanYear = year.toString().trim();
-  // If it's already in YYYY-YYYY format, return as-is
   if (/^\d{4}-\d{4}$/.test(cleanYear)) {
     return cleanYear;
   }
-  // If it's just YYYY, convert to YYYY-YYYY
   if (/^\d{4}$/.test(cleanYear)) {
     const startYear = parseInt(cleanYear);
-    return `${startYear}-${startYear + 1}`; // Fixed: +1 instead of +4
+    return `${startYear}-${startYear + 1}`;
   }
   return cleanYear;
 }
@@ -191,7 +192,7 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// Simple CSV parser function - FIXED for new format
+// Simple CSV parser function
 function parseCSV(csvString, isSubjects = false) {
   try {
     const lines = csvString.split('\n').filter(line => line.trim());
@@ -201,7 +202,6 @@ function parseCSV(csvString, isSubjects = false) {
       const line = lines[i].trim();
       if (!line) continue;
       
-      // Handle quoted CSV values
       const values = [];
       let current = '';
       let inQuotes = false;
@@ -220,7 +220,6 @@ function parseCSV(csvString, isSubjects = false) {
       }
       values.push(current.trim());
       
-      // Skip header row - check for any of the possible headers
       const firstValue = values[0] ? values[0].toLowerCase() : '';
       if (i === 0 && (
         firstValue === 'name' || 
@@ -234,7 +233,6 @@ function parseCSV(csvString, isSubjects = false) {
       }
       
       if (isSubjects && values.length >= 4) {
-        // Format: Faculty ID, Faculty Name, Subject Code, Subject Name
         const facultyId = values[0] || '';
         const facultyName = values[1] || '';
         const subjectCode = values[2] || '';
@@ -249,7 +247,6 @@ function parseCSV(csvString, isSubjects = false) {
           });
         }
       } else if (!isSubjects && values.length >= 3) {
-        // Format: Name, Hallticket, Branch
         const name = values[0] || '';
         const hallticket = values[1] || '';
         const branch = values[2] || '';
@@ -280,9 +277,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// =============================================
 // GET STUDENT BY HALLTICKET (for student login)
-// =============================================
 app.get('/student-by-hallticket/:hallticket', async (req, res) => {
   try {
     const { hallticket } = req.params;
@@ -309,6 +304,7 @@ app.get('/student-by-hallticket/:hallticket', async (req, res) => {
       student: {
         name: student.name,
         hallticket: student.hallticket,
+        class: student.class,
         branch: student.branch,
         academicYear: student.academicYear,
         email: student.email || null
@@ -355,7 +351,7 @@ const TimetableSchema = new mongoose.Schema({
   class: { type: String, required: true },
   branch: { type: String, required: true },
   academicYear: { type: String, required: true },
-  semester: { type: String, required: true }, // 1-1, 1-2, etc.
+  semester: { type: String, required: true },
   entries: [{
     subjectCode: { type: String, required: true },
     subjectName: String,
@@ -437,7 +433,6 @@ app.delete('/api/faculty-master/:facultyId', async (req, res) => {
   try {
     const { facultyId } = req.params;
     
-    // Check if faculty is assigned in any timetable
     const timetableExists = await Timetable.findOne({ 'entries.facultyId': facultyId });
     if (timetableExists) {
       return res.status(400).json({ error: 'Cannot delete faculty assigned to timetable' });
@@ -515,7 +510,6 @@ app.delete('/api/subject-master/:subjectCode', async (req, res) => {
   try {
     const { subjectCode } = req.params;
     
-    // Check if subject is used in timetable
     const timetableExists = await Timetable.findOne({ 'entries.subjectCode': subjectCode });
     if (timetableExists) {
       return res.status(400).json({ error: 'Cannot delete subject assigned to timetable' });
@@ -570,13 +564,11 @@ app.post('/api/timetable', async (req, res) => {
       return res.status(400).json({ error: 'All fields are required' });
     }
     
-    // Check if timetable already exists for this combination
     const existing = await Timetable.findOne({ class: cls, branch, academicYear, semester });
     if (existing) {
       return res.status(400).json({ error: 'Timetable already exists for this combination' });
     }
     
-    // Validate faculty and subject IDs
     for (const entry of entries) {
       const faculty = await FacultyMaster.findOne({ facultyId: entry.facultyId });
       if (!faculty) {
@@ -601,7 +593,6 @@ app.post('/api/timetable', async (req, res) => {
       createdBy: req.user?.username || 'admin'
     });
     
-    // Also create entries in the existing Subject collection for backward compatibility
     for (const entry of entries) {
       await Subject.findOneAndUpdate(
         { 
@@ -635,7 +626,6 @@ app.put('/api/timetable/:id', async (req, res) => {
     const { id } = req.params;
     const { entries } = req.body;
     
-    // Validate faculty and subject IDs
     for (const entry of entries) {
       const faculty = await FacultyMaster.findOne({ facultyId: entry.facultyId });
       if (!faculty) {
@@ -664,7 +654,6 @@ app.put('/api/timetable/:id', async (req, res) => {
       return res.status(404).json({ error: 'Timetable not found' });
     }
     
-    // Update Subject collection
     await Subject.deleteMany({ 
       class: timetable.class, 
       branch: timetable.branch, 
@@ -698,7 +687,6 @@ app.delete('/api/timetable/:id', async (req, res) => {
       return res.status(404).json({ error: 'Timetable not found' });
     }
     
-    // Delete from Subject collection
     await Subject.deleteMany({ 
       class: timetable.class, 
       branch: timetable.branch, 
@@ -714,14 +702,12 @@ app.delete('/api/timetable/:id', async (req, res) => {
 // Import from existing data (migration helper)
 app.post('/api/migrate-subjects-to-master', async (req, res) => {
   try {
-    // Get all unique faculties from Subject collection
     const uniqueFaculties = await Subject.distinct('faculty');
     const uniqueSubjects = await Subject.distinct('subject');
     
     let facultyCount = 0;
     let subjectCount = 0;
     
-    // Migrate faculties
     for (const faculty of uniqueFaculties) {
       if (faculty && faculty.trim() && !faculty.match(/^[0-9A-Z]{10,}$/)) {
         const existing = await FacultyMaster.findOne({ facultyName: faculty });
@@ -734,7 +720,6 @@ app.post('/api/migrate-subjects-to-master', async (req, res) => {
       }
     }
     
-    // Migrate subjects
     for (const subject of uniqueSubjects) {
       if (subject && subject.trim()) {
         const existing = await SubjectMaster.findOne({ subjectName: subject });
@@ -787,7 +772,6 @@ app.post('/upload-students', upload.single('file'), async (req, res) => {
     let duplicateCount = 0;
     let newCount = 0;
     
-    // Process in batches
     const batchSize = 25;
     
     for (let i = 0; i < students.length; i += batchSize) {
@@ -795,22 +779,23 @@ app.post('/upload-students', upload.single('file'), async (req, res) => {
       
       for (const student of batch) {
         try {
-          // Check if student already exists with SAME ACADEMIC YEAR
           const existingStudent = await Student.findOne({ 
             hallticket: student.hallticket,
-            academicYear: academicYear
+            academicYear: academicYear,
+            class: cls
           });
           
           if (existingStudent) {
-            // Update existing student
             await Student.updateOne(
               { 
                 hallticket: student.hallticket,
-                academicYear: academicYear 
+                academicYear: academicYear,
+                class: cls
               },
               { 
                 $set: { 
                   name: student.name, 
+                  class: cls,
                   branch: student.branch,
                   academicYear: academicYear,
                   ...(existingStudent.email && { email: existingStudent.email }),
@@ -821,16 +806,16 @@ app.post('/upload-students', upload.single('file'), async (req, res) => {
             successCount++;
             duplicateCount++;
           } else {
-            // Check if student exists in different academic year
-            const studentInOtherYear = await Student.findOne({ 
-              hallticket: student.hallticket 
+            const studentInOtherClass = await Student.findOne({ 
+              hallticket: student.hallticket,
+              academicYear: academicYear
             });
             
-            if (studentInOtherYear) {
-              // Create NEW record for this academic year
+            if (studentInOtherClass) {
               await Student.create({
                 name: student.name,
                 hallticket: student.hallticket,
+                class: cls,
                 branch: student.branch,
                 academicYear: academicYear,
                 password: bcrypt.hashSync(student.hallticket, 10)
@@ -838,10 +823,10 @@ app.post('/upload-students', upload.single('file'), async (req, res) => {
               successCount++;
               newCount++;
             } else {
-              // Create completely new student
               await Student.create({
                 name: student.name,
                 hallticket: student.hallticket,
+                class: cls,
                 branch: student.branch,
                 academicYear: academicYear,
                 password: bcrypt.hashSync(student.hallticket, 10)
@@ -851,7 +836,6 @@ app.post('/upload-students', upload.single('file'), async (req, res) => {
             }
           }
           
-          // Create/update feedback submission record
           await FeedbackSubmission.findOneAndUpdate(
             {
               hallticket: student.hallticket,
@@ -872,10 +856,10 @@ app.post('/upload-students', upload.single('file'), async (req, res) => {
           
         } catch (error) {
           errorCount++;
+          console.error('Error processing student:', error);
         }
       }
       
-      // Small delay between batches
       if (i + batchSize < students.length) {
         await new Promise(resolve => setTimeout(resolve, 50));
       }
@@ -902,7 +886,7 @@ app.post('/upload-students', upload.single('file'), async (req, res) => {
   }
 });
 
-// Upload subjects CSV - FIXED
+// Upload subjects CSV
 app.post('/upload-subjects', upload.single('file'), async (req, res) => {
   try {
     const { class: cls, branch, academicYear } = req.body;
@@ -922,17 +906,14 @@ app.post('/upload-subjects', upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: 'No valid subject data found in CSV' });
     }
 
-    // Delete existing subjects for this class/branch/year
     await Subject.deleteMany({ 
       class: cls, 
       branch: branch, 
       academicYear: academicYear 
     });
     
-    // Upsert FacultyMaster entries and prepare subjects
     const subjectsToInsert = [];
     for (const subject of subjects) {
-      // Upsert FacultyMaster using Faculty ID as unique identifier
       await FacultyMaster.findOneAndUpdate(
         { facultyId: subject.facultyId },
         { 
@@ -953,7 +934,6 @@ app.post('/upload-subjects', upload.single('file'), async (req, res) => {
       });
     }
 
-    // Insert all subjects
     let insertedCount = 0;
     try {
       const result = await Subject.insertMany(subjectsToInsert, { ordered: false });
@@ -997,7 +977,6 @@ app.post('/admin/register', async (req, res) => {
       return res.status(400).json({ error: 'Username, password, and email are required' });
     }
     
-    // Check if admin already exists
     const existingAdmin = await Admin.findOne({ 
       $or: [{ username }, { email }] 
     });
@@ -1006,7 +985,6 @@ app.post('/admin/register', async (req, res) => {
       return res.status(400).json({ error: 'Admin username or email already exists' });
     }
     
-    // Create new admin
     const admin = await Admin.create({
       username,
       password: bcrypt.hashSync(password, 10),
@@ -1038,18 +1016,15 @@ app.post('/admin/login', async (req, res) => {
       return res.status(400).json({ error: 'Username and password are required' });
     }
     
-    // Find admin by username
     const admin = await Admin.findOne({ username });
     if (!admin) {
       return res.status(400).json({ error: 'Invalid credentials' });
     }
     
-    // Check password
     if (!bcrypt.compareSync(password, admin.password)) {
       return res.status(400).json({ error: 'Invalid credentials' });
     }
     
-    // Generate JWT token
     const token = jwt.sign(
       { 
         id: admin._id,
@@ -1078,7 +1053,7 @@ app.post('/admin/login', async (req, res) => {
   }
 });
 
-// Student login - FIXED
+// Student login
 app.post('/login', async (req, res) => {
   try {
     const { hallticket, password } = req.body;
@@ -1102,6 +1077,7 @@ app.post('/login', async (req, res) => {
       { 
         hallticket: student.hallticket, 
         email: student.email, 
+        class: student.class,
         branch: student.branch,
         academicYear: student.academicYear 
       }, 
@@ -1115,6 +1091,7 @@ app.post('/login', async (req, res) => {
       student: {
         name: student.name,
         hallticket: student.hallticket,
+        class: student.class,
         branch: student.branch,
         academicYear: student.academicYear,
         email: student.email
@@ -1129,7 +1106,6 @@ app.post('/login', async (req, res) => {
 // FACULTY MANAGEMENT ENDPOINTS
 // =============================================
 
-// Get all unique faculties across all classes and branches
 app.get('/all-faculties', async (req, res) => {
   try {
     const faculties = await Subject.distinct('faculty');
@@ -1465,7 +1441,11 @@ app.get('/feedback-counts', async (req, res) => {
       final: true 
     });
     
-    const totalStudents = await Student.countDocuments({ branch: branch, academicYear: academicYear });
+    const totalStudents = await Student.countDocuments({ 
+      class: cls,
+      branch: branch, 
+      academicYear: academicYear 
+    });
     
     res.json({ 
       initial: { submitted: initialCount, total: totalStudents },
@@ -1666,6 +1646,7 @@ app.get('/student-semesters', authenticateToken, async (req, res) => {
     }
     
     const semesters = await Subject.distinct('class', { 
+      class: student.class,
       branch: student.branch,
       academicYear: student.academicYear 
     });
@@ -1685,11 +1666,22 @@ app.get('/subjects', authenticateToken, async (req, res) => {
     }
     
     const student = await Student.findOne({ hallticket: req.user.hallticket });
-    if (!student || student.branch !== branch || student.academicYear !== academicYear) {
-      return res.status(403).json({ error: 'Unauthorized to access these subjects' });
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found' });
     }
     
-    const subjects = await Subject.find({ class: cls, branch: branch, academicYear: academicYear });
+    // Verify the student has access to these subjects
+    if (student.branch !== branch || student.academicYear !== academicYear || student.class !== cls) {
+      return res.status(403).json({ 
+        error: 'Unauthorized to access these subjects. Your class: ' + student.class + ', Requested: ' + cls 
+      });
+    }
+    
+    const subjects = await Subject.find({ 
+      class: cls, 
+      branch: branch, 
+      academicYear: academicYear 
+    });
     res.json(subjects);
   } catch (error) {
     console.error('Failed to fetch subjects:', error);
@@ -1705,7 +1697,11 @@ app.get('/student-info', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Student not found' });
     }
     
-    res.json({ branch: student.branch, academicYear: student.academicYear });
+    res.json({ 
+      class: student.class,
+      branch: student.branch, 
+      academicYear: student.academicYear 
+    });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch student info' });
   }
@@ -1894,9 +1890,10 @@ app.get('/admin/students', async (req, res) => {
     }
     
     const students = await Student.find({ 
+      class: cls,
       branch: branch, 
       academicYear: academicYear 
-    }).select('name hallticket branch academicYear -_id');
+    }).select('name hallticket class branch academicYear -_id');
     
     res.json(students);
   } catch (error) {
@@ -1915,13 +1912,15 @@ app.get('/admin/students-with-status', async (req, res) => {
     }
     
     const students = await Student.find({ 
+      class: cls,
       branch: branch, 
       academicYear: academicYear 
-    }).select('name hallticket branch academicYear email password -_id');
+    }).select('name hallticket class branch academicYear email password -_id');
     
     const studentsWithStatus = students.map(student => ({
       name: student.name,
       hallticket: student.hallticket,
+      class: student.class,
       branch: student.branch,
       academicYear: student.academicYear,
       registered: !!student.email,
@@ -1968,6 +1967,7 @@ app.put('/admin/reset-student/:hallticket', async (req, res) => {
       student: {
         name: student.name,
         hallticket: student.hallticket,
+        class: student.class,
         branch: student.branch,
         academicYear: student.academicYear
       }
