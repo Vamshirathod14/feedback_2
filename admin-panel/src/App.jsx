@@ -48,11 +48,28 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [adminInfo, setAdminInfo] = useState(null);
   const [studentsFileName, setStudentsFileName] = useState("");
-const [subjectsFileName, setSubjectsFileName] = useState("");
-const [uploadLoading, setUploadLoading] = useState(false);
+  const [subjectsFileName, setSubjectsFileName] = useState("");
+  const [uploadLoading, setUploadLoading] = useState(false);
   const [currentView, setCurrentView] = useState('admin');
   const [studentsFile, setStudentsFile] = useState(null);
   const [subjectsFile, setSubjectsFile] = useState(null);
+  
+  // =============================================
+  // NEW: Upload Progress State
+  // =============================================
+  const [uploadProgress, setUploadProgress] = useState({
+    show: false,
+    current: 0,
+    total: 0,
+    message: '',
+    status: 'idle' // idle, uploading, complete, error
+  });
+  
+  // =============================================
+  // NEW: Track uploaded files to prevent duplicates
+  // =============================================
+  const [uploadedFiles, setUploadedFiles] = useState([]);
+  
   const [classSel, setClassSel] = useState("");
   const [branchSel, setBranchSel] = useState("");
   const [academicYear, setAcademicYear] = useState("");
@@ -114,7 +131,6 @@ const [uploadLoading, setUploadLoading] = useState(false);
   const convertToGraduationYear = (academicYear, classSel) => {
     if (!academicYear) return "";
     
-    // If it's already in YYYY-YYYY format, return as-is
     if (/^\d{4}-\d{4}$/.test(academicYear)) {
       return academicYear;
     }
@@ -143,117 +159,251 @@ const [uploadLoading, setUploadLoading] = useState(false);
     }
   }, [classSel, branchSel, academicYear]);
 
+  // =============================================
+  // NEW: Check if file already uploaded
+  // =============================================
+  const isFileAlreadyUploaded = (fileName, classSel, branchSel, academicYear) => {
+    return uploadedFiles.some(file => 
+      file.name === fileName && 
+      file.class === classSel && 
+      file.branch === branchSel && 
+      file.academicYear === academicYear
+    );
+  };
 
-const handleStudentsFileChange = (e) => {
-  const file = e.target.files[0];
-  if (file) {
-    setStudentsFile(file);
-    setStudentsFileName(file.name);
-    toast.info(`Selected: ${file.name}`);
-  }
-};
+  // =============================================
+  // NEW: Add file to uploaded list
+  // =============================================
+  const addToUploadedFiles = (fileName, classSel, branchSel, academicYear) => {
+    setUploadedFiles(prev => [...prev, {
+      name: fileName,
+      class: classSel,
+      branch: branchSel,
+      academicYear: academicYear,
+      uploadedAt: new Date().toLocaleString()
+    }]);
+  };
 
-const handleSubjectsFileChange = (e) => {
-  const file = e.target.files[0];
-  if (file) {
-    setSubjectsFile(file);
-    setSubjectsFileName(file.name);
-    toast.info(`Selected: ${file.name}`);
-  }
-};
+  const handleStudentsFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setStudentsFile(file);
+      setStudentsFileName(file.name);
+      toast.info(`Selected: ${file.name}`);
+    }
+  };
 
-  // Upload students csv
-   const uploadStudents = async () => {
-  if (!studentsFile) {
-    toast.error("Please select a file first!");
-    return;
-  }
-  if (!classSel || !branchSel || !academicYear) {
-    toast.error("Please select class, branch and academic year first!");
-    return;
-  }
-  
-  setUploadLoading(true);
-  const graduationYear = convertToGraduationYear(academicYear, classSel);
-  
-  const formData = new FormData();
-  formData.append("file", studentsFile);
-  formData.append("class", classSel);
-  formData.append("branch", branchSel);
-  formData.append("academicYear", graduationYear);
-  
-  try {
-    const response = await axios.post(`${API_BASE_URL}/upload-students`, formData, {
-      onUploadProgress: (progressEvent) => {
-        const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-        toast.info(`Uploading students... ${progress}%`);
-      }
+  const handleSubjectsFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setSubjectsFile(file);
+      setSubjectsFileName(file.name);
+      toast.info(`Selected: ${file.name}`);
+    }
+  };
+
+  // Upload students csv - WITH PROGRESS BAR
+  const uploadStudents = async () => {
+    if (!studentsFile) {
+      toast.error("Please select a file first!");
+      return;
+    }
+    if (!classSel || !branchSel || !academicYear) {
+      toast.error("Please select class, branch and academic year first!");
+      return;
+    }
+
+    // =============================================
+    // NEW: Check for duplicate upload
+    // =============================================
+    if (isFileAlreadyUploaded(studentsFile.name, classSel, branchSel, academicYear)) {
+      toast.error(`⚠️ File "${studentsFile.name}" has already been uploaded for ${classSel} ${branchSel} ${academicYear}!`);
+      return;
+    }
+
+    setUploadLoading(true);
+    
+    // =============================================
+    // NEW: Show progress bar
+    // =============================================
+    setUploadProgress({
+      show: true,
+      current: 0,
+      total: 100,
+      message: 'Preparing to upload students...',
+      status: 'uploading'
     });
-    
-    toast.success(`✅ ${response.data.message}`);
-    console.log('Upload response:', response.data);
-    
-    // Clear file after successful upload
-    setStudentsFile(null);
-    setStudentsFileName("");
-    document.querySelector('input[type="file"][accept=".csv"]').value = ""; // Clear file input
-    
-    loadFeedbackCounts();
-  } catch (error) {
-    console.error('Upload error:', error);
-    toast.error(`❌ Failed to upload students: ${error.response?.data?.error || error.message}`);
-  } finally {
-    setUploadLoading(false);
-  }
-};
 
+    const graduationYear = convertToGraduationYear(academicYear, classSel);
+    
+    const formData = new FormData();
+    formData.append("file", studentsFile);
+    formData.append("class", classSel);
+    formData.append("branch", branchSel);
+    formData.append("academicYear", graduationYear);
+    
+    try {
+      const response = await axios.post(`${API_BASE_URL}/upload-students`, formData, {
+        onUploadProgress: (progressEvent) => {
+          const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          setUploadProgress({
+            show: true,
+            current: progress,
+            total: 100,
+            message: `Uploading students... ${progress}%`,
+            status: 'uploading'
+          });
+        }
+      });
+      
+      // =============================================
+      // NEW: Mark as uploaded
+      // =============================================
+      addToUploadedFiles(studentsFile.name, classSel, branchSel, academicYear);
+      
+      setUploadProgress({
+        show: true,
+        current: 100,
+        total: 100,
+        message: `✅ ${response.data.message}`,
+        status: 'complete'
+      });
+      
+      toast.success(`✅ ${response.data.message}`);
+      console.log('Upload response:', response.data);
+      
+      // Clear file after successful upload
+      setStudentsFile(null);
+      setStudentsFileName("");
+      document.querySelector('input[type="file"][accept=".csv"]').value = "";
+      
+      loadFeedbackCounts();
+      
+      // =============================================
+      // NEW: Hide progress after 5 seconds
+      // =============================================
+      setTimeout(() => {
+        setUploadProgress({ show: false, current: 0, total: 0, message: '', status: 'idle' });
+      }, 5000);
+      
+    } catch (error) {
+      console.error('Upload error:', error);
+      
+      setUploadProgress({
+        show: true,
+        current: 0,
+        total: 0,
+        message: `❌ Failed: ${error.response?.data?.error || error.message}`,
+        status: 'error'
+      });
+      
+      toast.error(`❌ Failed to upload students: ${error.response?.data?.error || error.message}`);
+    } finally {
+      setUploadLoading(false);
+    }
+  };
 
-  // Upload subjects+faculties csv
+  // Upload subjects+faculties csv - WITH PROGRESS BAR
   const uploadSubjects = async () => {
-  if (!subjectsFile) {
-    toast.error("Please select a file first!");
-    return;
-  }
-  if (!classSel || !branchSel || !academicYear) {
-    toast.error("Please select class, branch and academic year first!");
-    return;
-  }
-  
-  setUploadLoading(true);
-  const graduationYear = convertToGraduationYear(academicYear, classSel);
-  
-  const formData = new FormData();
-  formData.append("file", subjectsFile);
-  formData.append("class", classSel);
-  formData.append("branch", branchSel);
-  formData.append("academicYear", graduationYear);
-  
-  try {
-    const response = await axios.post(`${API_BASE_URL}/upload-subjects`, formData, {
-      onUploadProgress: (progressEvent) => {
-        const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-        toast.info(`Uploading subjects... ${progress}%`);
-      }
-    });
-    
-    toast.success(`✅ ${response.data.message}`);
-    console.log('Upload response:', response.data);
-    
-    // Clear file after successful upload
-    setSubjectsFile(null);
-    setSubjectsFileName("");
-    document.querySelectorAll('input[type="file"][accept=".csv"]')[1].value = ""; // Clear file input
-    
-    loadFacultyList();
-    enableRound('initial', true);
-  } catch (error) {
-    console.error('Upload error:', error);
-    toast.error(`❌ Failed to upload subjects: ${error.response?.data?.error || error.message}`);
-  } finally {
-    setUploadLoading(false);
-  }
-};
+    if (!subjectsFile) {
+      toast.error("Please select a file first!");
+      return;
+    }
+    if (!classSel || !branchSel || !academicYear) {
+      toast.error("Please select class, branch and academic year first!");
+      return;
+    }
 
+    // =============================================
+    // NEW: Check for duplicate upload
+    // =============================================
+    if (isFileAlreadyUploaded(subjectsFile.name, classSel, branchSel, academicYear)) {
+      toast.error(`⚠️ File "${subjectsFile.name}" has already been uploaded for ${classSel} ${branchSel} ${academicYear}!`);
+      return;
+    }
+
+    setUploadLoading(true);
+    
+    // =============================================
+    // NEW: Show progress bar
+    // =============================================
+    setUploadProgress({
+      show: true,
+      current: 0,
+      total: 100,
+      message: 'Preparing to upload subjects...',
+      status: 'uploading'
+    });
+
+    const graduationYear = convertToGraduationYear(academicYear, classSel);
+    
+    const formData = new FormData();
+    formData.append("file", subjectsFile);
+    formData.append("class", classSel);
+    formData.append("branch", branchSel);
+    formData.append("academicYear", graduationYear);
+    
+    try {
+      const response = await axios.post(`${API_BASE_URL}/upload-subjects`, formData, {
+        onUploadProgress: (progressEvent) => {
+          const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          setUploadProgress({
+            show: true,
+            current: progress,
+            total: 100,
+            message: `Uploading subjects... ${progress}%`,
+            status: 'uploading'
+          });
+        }
+      });
+      
+      // =============================================
+      // NEW: Mark as uploaded
+      // =============================================
+      addToUploadedFiles(subjectsFile.name, classSel, branchSel, academicYear);
+      
+      setUploadProgress({
+        show: true,
+        current: 100,
+        total: 100,
+        message: `✅ ${response.data.message}`,
+        status: 'complete'
+      });
+      
+      toast.success(`✅ ${response.data.message}`);
+      console.log('Upload response:', response.data);
+      
+      // Clear file after successful upload
+      setSubjectsFile(null);
+      setSubjectsFileName("");
+      document.querySelectorAll('input[type="file"][accept=".csv"]')[1].value = "";
+      
+      loadFacultyList();
+      enableRound('initial', true);
+      
+      // =============================================
+      // NEW: Hide progress after 5 seconds
+      // =============================================
+      setTimeout(() => {
+        setUploadProgress({ show: false, current: 0, total: 0, message: '', status: 'idle' });
+      }, 5000);
+      
+    } catch (error) {
+      console.error('Upload error:', error);
+      
+      setUploadProgress({
+        show: true,
+        current: 0,
+        total: 0,
+        message: `❌ Failed: ${error.response?.data?.error || error.message}`,
+        status: 'error'
+      });
+      
+      toast.error(`❌ Failed to upload subjects: ${error.response?.data?.error || error.message}`);
+    } finally {
+      setUploadLoading(false);
+    }
+  };
 
   // Load list of all faculties
   const loadFacultyList = async () => {
@@ -319,48 +469,153 @@ const handleSubjectsFileChange = (e) => {
     }
   };
 
+  // =============================================
+  // NEW: Upload Progress Component
+  // =============================================
+  const UploadProgressBar = () => {
+    if (!uploadProgress.show) return null;
+    
+    const isComplete = uploadProgress.status === 'complete';
+    const isError = uploadProgress.status === 'error';
+    const barColor = isError ? '#dc3545' : isComplete ? '#28a745' : '#2c7be5';
+    const progress = uploadProgress.current || 0;
+    
+    return (
+      <div className="upload-progress-container" style={{
+        margin: '15px 0',
+        padding: '15px',
+        border: '1px solid #ddd',
+        borderRadius: '8px',
+        backgroundColor: '#f8f9fa'
+      }}>
+        <div className="upload-progress-header" style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          marginBottom: '8px'
+        }}>
+          <span style={{ fontWeight: 'bold' }}>{uploadProgress.message}</span>
+          <span>{isComplete ? '✅' : isError ? '❌' : `${progress}%`}</span>
+        </div>
+        <div className="upload-progress-track" style={{
+          width: '100%',
+          height: '10px',
+          backgroundColor: '#e9ecef',
+          borderRadius: '5px',
+          overflow: 'hidden'
+        }}>
+          <div className="upload-progress-fill" style={{
+            width: `${isComplete ? 100 : isError ? 100 : progress}%`,
+            height: '100%',
+            backgroundColor: barColor,
+            transition: 'width 0.3s ease',
+            borderRadius: '5px'
+          }}></div>
+        </div>
+        {isComplete && (
+          <div style={{ marginTop: '8px', color: '#28a745', fontSize: '14px' }}>
+            ✅ Upload completed successfully!
+          </div>
+        )}
+        {isError && (
+          <div style={{ marginTop: '8px', color: '#dc3545', fontSize: '14px' }}>
+            ❌ Upload failed. Please try again.
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // =============================================
+  // NEW: Uploaded Files List Component
+  // =============================================
+  const UploadedFilesList = () => {
+    if (uploadedFiles.length === 0) return null;
+    
+    return (
+      <div className="uploaded-files-container" style={{
+        margin: '15px 0',
+        padding: '15px',
+        border: '1px solid #28a745',
+        borderRadius: '8px',
+        backgroundColor: '#f0fff4'
+      }}>
+        <h4 style={{ margin: '0 0 10px 0', color: '#28a745' }}>✅ Successfully Uploaded Files</h4>
+        <div style={{ maxHeight: '150px', overflowY: 'auto' }}>
+          <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ backgroundColor: '#d4edda' }}>
+                <th style={{ padding: '6px', textAlign: 'left' }}>File Name</th>
+                <th style={{ padding: '6px', textAlign: 'left' }}>Class</th>
+                <th style={{ padding: '6px', textAlign: 'left' }}>Branch</th>
+                <th style={{ padding: '6px', textAlign: 'left' }}>Academic Year</th>
+                <th style={{ padding: '6px', textAlign: 'left' }}>Uploaded At</th>
+              </tr>
+            </thead>
+            <tbody>
+              {uploadedFiles.slice(-5).reverse().map((file, index) => (
+                <tr key={index} style={{ borderBottom: '1px solid #e9ecef' }}>
+                  <td style={{ padding: '4px 6px' }}>📄 {file.name}</td>
+                  <td style={{ padding: '4px 6px' }}>{file.class}</td>
+                  <td style={{ padding: '4px 6px' }}>{file.branch}</td>
+                  <td style={{ padding: '4px 6px' }}>{file.academicYear}</td>
+                  <td style={{ padding: '4px 6px', fontSize: '11px' }}>{file.uploadedAt}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {uploadedFiles.length > 5 && (
+          <div style={{ fontSize: '12px', color: '#6c757d', marginTop: '5px' }}>
+            Showing last 5 of {uploadedFiles.length} uploaded files
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ... rest of your code remains the same ...
+
   // View faculty feedback aggregation with round support
-   const loadPerformance = async (round = "initial") => {
-  if (!facultyName && !selectedFaculty) {
-    toast.error("Please enter or select a faculty name!");
-    return;
-  }
-  
-  const facultyToUse = facultyName || selectedFaculty;
-  
-  try {
-    const graduationYear = convertToGraduationYear(academicYear, classSel);
-    console.log('Calling API:', `full-performance/${facultyToUse}`, { class: classSel, branch: branchSel, academicYear: graduationYear, round });
-    
-    const res = await axios.get(`${API_BASE_URL}/full-performance/${facultyToUse}`, {
-      params: { class: classSel, branch: branchSel, academicYear: graduationYear, round }
-    });
-    
-    console.log('API Response:', res.data); // DEBUG: Check structure
-    
-    setPerformance(res.data);
-    
-    if (res.data.length === 0) {
-      toast.warning('No feedback data found for this faculty.');
-      setFacultyData(null);
+  const loadPerformance = async (round = "initial") => {
+    if (!facultyName && !selectedFaculty) {
+      toast.error("Please enter or select a faculty name!");
       return;
     }
     
-    const percentages = calculateFacultyPercentage(res.data);
-    setFacultyData({
-      name: facultyToUse,
-      percentages,
-      performance: res.data,
-      studentCount: res.data[0]?.studentCount || 0,
-      round
-    });
+    const facultyToUse = facultyName || selectedFaculty;
     
-  } catch (error) {
-    console.error('Full error:', error.response?.data || error);
-    toast.error(`Failed: ${error.response?.status || 500} - ${error.response?.data?.error || error.message}`);
-  }
-};
-
+    try {
+      const graduationYear = convertToGraduationYear(academicYear, classSel);
+      console.log('Calling API:', `full-performance/${facultyToUse}`, { class: classSel, branch: branchSel, academicYear: graduationYear, round });
+      
+      const res = await axios.get(`${API_BASE_URL}/full-performance/${facultyToUse}`, {
+        params: { class: classSel, branch: branchSel, academicYear: graduationYear, round }
+      });
+      
+      console.log('API Response:', res.data);
+      
+      setPerformance(res.data);
+      
+      if (res.data.length === 0) {
+        toast.warning('No feedback data found for this faculty.');
+        setFacultyData(null);
+        return;
+      }
+      
+      const percentages = calculateFacultyPercentage(res.data);
+      setFacultyData({
+        name: facultyToUse,
+        percentages,
+        performance: res.data,
+        studentCount: res.data[0]?.studentCount || 0,
+        round
+      });
+      
+    } catch (error) {
+      console.error('Full error:', error.response?.data || error);
+      toast.error(`Failed: ${error.response?.status || 500} - ${error.response?.data?.error || error.message}`);
+    }
+  };
 
   // Load performance for selected faculty from dropdown
   const loadSelectedFacultyPerformance = async (round = "initial") => {
@@ -469,74 +724,72 @@ const handleSubjectsFileChange = (e) => {
   };
 
   // Prepare data for pie chart
-   // Prepare data for pie chart - FIXED
-const getPieChartData = () => {
-  if (!facultyData || !facultyData.percentages || Object.keys(facultyData.percentages).length === 0) {
-    return null;
-  }
-  
-  const labels = Object.keys(facultyData.percentages);
-  const data = Object.values(facultyData.percentages).map(val => Number(val) || 0); // Ensure numbers
-  
-  if (labels.length === 0 || data.every(d => d === 0)) {
-    return null;
-  }
+  const getPieChartData = () => {
+    if (!facultyData || !facultyData.percentages || Object.keys(facultyData.percentages).length === 0) {
+      return null;
+    }
+    
+    const labels = Object.keys(facultyData.percentages);
+    const data = Object.values(facultyData.percentages).map(val => Number(val) || 0);
+    
+    if (labels.length === 0 || data.every(d => d === 0)) {
+      return null;
+    }
 
-  const backgroundColors = [
-    'rgba(255, 99, 132, 0.6)',
-    'rgba(54, 162, 235, 0.6)',
-    'rgba(255, 206, 86, 0.6)',
-    'rgba(75, 192, 192, 0.6)',
-    'rgba(153, 102, 255, 0.6)',
-    'rgba(255, 159, 64, 0.6)',
-    'rgba(199, 199, 199, 0.6)',
-    'rgba(83, 102, 255, 0.6)',
-    'rgba(40, 159, 64, 0.6)',
-    'rgba(210, 99, 132, 0.6)',
-    'rgba(255, 99, 132, 0.8)',  // Extra colors for more categories
-    'rgba(54, 162, 235, 0.8)'
-  ];
+    const backgroundColors = [
+      'rgba(255, 99, 132, 0.6)',
+      'rgba(54, 162, 235, 0.6)',
+      'rgba(255, 206, 86, 0.6)',
+      'rgba(75, 192, 192, 0.6)',
+      'rgba(153, 102, 255, 0.6)',
+      'rgba(255, 159, 64, 0.6)',
+      'rgba(199, 199, 199, 0.6)',
+      'rgba(83, 102, 255, 0.6)',
+      'rgba(40, 159, 64, 0.6)',
+      'rgba(210, 99, 132, 0.6)',
+      'rgba(255, 99, 132, 0.8)',
+      'rgba(54, 162, 235, 0.8)'
+    ];
 
-  return {
-    labels,
-    datasets: [{
-      data,
-      backgroundColor: backgroundColors.slice(0, labels.length),
-      borderColor: backgroundColors.slice(0, labels.length).map(color => 
-        color.replace('0.6', '1').replace('0.8', '1')
-      ),
-      borderWidth: 2,
-    }],
+    return {
+      labels,
+      datasets: [{
+        data,
+        backgroundColor: backgroundColors.slice(0, labels.length),
+        borderColor: backgroundColors.slice(0, labels.length).map(color => 
+          color.replace('0.6', '1').replace('0.8', '1')
+        ),
+        borderWidth: 2,
+      }],
+    };
   };
-};
 
-// Prepare data for bar chart - FIXED (Horizontal + Proper Scale)
-const getBarChartData = () => {
-  if (!facultyData || !facultyData.percentages || Object.keys(facultyData.percentages).length === 0) {
-    return null;
-  }
-  
-  const labels = Object.keys(facultyData.percentages);
-  const data = Object.values(facultyData.percentages).map(val => Number(val) || 0);
+  // Prepare data for bar chart
+  const getBarChartData = () => {
+    if (!facultyData || !facultyData.percentages || Object.keys(facultyData.percentages).length === 0) {
+      return null;
+    }
+    
+    const labels = Object.keys(facultyData.percentages);
+    const data = Object.values(facultyData.percentages).map(val => Number(val) || 0);
 
-  if (labels.length === 0 || data.every(d => d === 0)) {
-    return null;
-  }
+    if (labels.length === 0 || data.every(d => d === 0)) {
+      return null;
+    }
 
-  return {
-    labels,
-    datasets: [{
-      label: 'Performance (%)',
-      data,
-      backgroundColor: 'rgba(54, 162, 235, 0.8)',
-      borderColor: 'rgba(54, 162, 235, 1)',
-      borderWidth: 2,
-      borderRadius: 4,
-      borderSkipped: false,
-    }],
+    return {
+      labels,
+      datasets: [{
+        label: 'Performance (%)',
+        data,
+        backgroundColor: 'rgba(54, 162, 235, 0.8)',
+        borderColor: 'rgba(54, 162, 235, 1)',
+        borderWidth: 2,
+        borderRadius: 4,
+        borderSkipped: false,
+      }],
+    };
   };
-};
-
 
   // Calculate overall faculty performance percentage
   const getOverallPercentage = () => {
@@ -822,68 +1075,89 @@ const getBarChartData = () => {
       {classSel && branchSel && academicYear && (
         <>
           <div className="upload-section">
-  <h3>Upload Data</h3>
-  <div className="upload-row">
-    <div className="upload-item">
-      <h4>Upload Students</h4>
-      <div className="file-input-container">
-        <input 
-          type="file" 
-          accept=".csv" 
-          onChange={handleStudentsFileChange}
-          id="students-file"
-          disabled={uploadLoading}
-        />
-        <label htmlFor="students-file" className="file-input-label">
-          📁 Choose Students CSV
-        </label>
-        {studentsFileName && (
-          <div className="file-selected">
-            ✅ Selected: <strong>{studentsFileName}</strong>
+            <h3>Upload Data</h3>
+            
+            {/* ============================================= */}
+            {/* NEW: Upload Progress Bar */}
+            {/* ============================================= */}
+            <UploadProgressBar />
+            
+            {/* ============================================= */}
+            {/* NEW: Uploaded Files List */}
+            {/* ============================================= */}
+            <UploadedFilesList />
+            
+            <div className="upload-row">
+              <div className="upload-item">
+                <h4>Upload Students</h4>
+                <div className="file-input-container">
+                  <input 
+                    type="file" 
+                    accept=".csv" 
+                    onChange={handleStudentsFileChange}
+                    id="students-file"
+                    disabled={uploadLoading}
+                  />
+                  <label htmlFor="students-file" className="file-input-label">
+                    📁 Choose Students CSV
+                  </label>
+                  {studentsFileName && (
+                    <div className="file-selected">
+                      ✅ Selected: <strong>{studentsFileName}</strong>
+                    </div>
+                  )}
+                </div>
+                <button 
+                  onClick={uploadStudents} 
+                  disabled={uploadLoading || !studentsFile}
+                  className={uploadLoading ? 'loading' : ''}
+                >
+                  {uploadLoading ? '⏳ Uploading...' : '📤 Upload Students'}
+                </button>
+                <p>CSV format: name, hallticket, branch</p>
+                <p style={{ fontSize: '12px', color: '#6c757d' }}>
+                  {uploadedFiles.filter(f => f.class === classSel && f.branch === branchSel && f.academicYear === academicYear && f.name.includes('students')).length > 0 && (
+                    <span style={{ color: '#28a745' }}>✅ Students already uploaded for this class</span>
+                  )}
+                </p>
+              </div>
+              
+              <div className="upload-item">
+                <h4>Upload Subjects & Faculties</h4>
+                <div className="file-input-container">
+                  <input 
+                    type="file" 
+                    accept=".csv" 
+                    onChange={handleSubjectsFileChange}
+                    id="subjects-file"
+                    disabled={uploadLoading}
+                  />
+                  <label htmlFor="subjects-file" className="file-input-label">
+                    📁 Choose Subjects CSV
+                  </label>
+                  {subjectsFileName && (
+                    <div className="file-selected">
+                      ✅ Selected: <strong>{subjectsFileName}</strong>
+                    </div>
+                  )}
+                </div>
+                <button 
+                  onClick={uploadSubjects} 
+                  disabled={uploadLoading || !subjectsFile}
+                  className={uploadLoading ? 'loading' : ''}
+                >
+                  {uploadLoading ? '⏳ Uploading...' : '📤 Upload Subjects'}
+                </button>
+                <p>CSV format: Faculty ID,Faculty Name,Subject Code,Subject Name</p>
+                <p className="note">Note: Initial Round will be automatically enabled after uploading subjects</p>
+                <p style={{ fontSize: '12px', color: '#6c757d' }}>
+                  {uploadedFiles.filter(f => f.class === classSel && f.branch === branchSel && f.academicYear === academicYear && f.name.includes('subjects')).length > 0 && (
+                    <span style={{ color: '#28a745' }}>✅ Subjects already uploaded for this class</span>
+                  )}
+                </p>
+              </div>
+            </div>
           </div>
-        )}
-      </div>
-      <button 
-        onClick={uploadStudents} 
-        disabled={uploadLoading || !studentsFile}
-        className={uploadLoading ? 'loading' : ''}
-      >
-        {uploadLoading ? '⏳ Uploading...' : '📤 Upload Students'}
-      </button>
-      <p>CSV format: name, hallticket, branch</p>
-    </div>
-    
-    <div className="upload-item">
-      <h4>Upload Subjects & Faculties</h4>
-      <div className="file-input-container">
-        <input 
-          type="file" 
-          accept=".csv" 
-          onChange={handleSubjectsFileChange}
-          id="subjects-file"
-          disabled={uploadLoading}
-        />
-        <label htmlFor="subjects-file" className="file-input-label">
-          📁 Choose Subjects CSV
-        </label>
-        {subjectsFileName && (
-          <div className="file-selected">
-            ✅ Selected: <strong>{subjectsFileName}</strong>
-          </div>
-        )}
-      </div>
-      <button 
-        onClick={uploadSubjects} 
-        disabled={uploadLoading || !subjectsFile}
-        className={uploadLoading ? 'loading' : ''}
-      >
-        {uploadLoading ? '⏳ Uploading...' : '📤 Upload Subjects'}
-      </button>
-      <p>CSV format: Faculty ID,Faculty Name,Subject Code,Subject Name</p>
-      <p className="note">Note: Initial Round will be automatically enabled after uploading subjects</p>
-    </div>
-  </div>
-</div>
 
           <div className="performance-section">
             <h3>Reports</h3>
@@ -1117,11 +1391,11 @@ const getBarChartData = () => {
             📊 Admin Dashboard
           </button>
           <button 
-  className={`nav-tab ${currentView === 'faculty-tracking' ? 'active' : ''}`}
-  onClick={() => setCurrentView('faculty-tracking')}
->
-  👨‍🏫 Faculty Tracking
-</button>
+            className={`nav-tab ${currentView === 'faculty-tracking' ? 'active' : ''}`}
+            onClick={() => setCurrentView('faculty-tracking')}
+          >
+            👨‍🏫 Faculty Tracking
+          </button>
           <button 
             className={`nav-tab ${currentView === 'password-reset' ? 'active' : ''}`}
             onClick={() => setCurrentView('password-reset')}
@@ -1130,37 +1404,37 @@ const getBarChartData = () => {
           </button>
 
           <button 
-  className={`nav-tab ${currentView === 'faculty-correction' ? 'active' : ''}`}
-  onClick={() => setCurrentView('faculty-correction')}
->
-  🔧 Faculty Name Correction
-</button>
-<button 
-  className={`nav-tab ${currentView === 'student-management' ? 'active' : ''}`}
-  onClick={() => setCurrentView('student-management')}
->
-  👥 Student Management
-</button>
-<button 
-  className={`nav-tab ${currentView === 'faculty-master' ? 'active' : ''}`}
-  onClick={() => setCurrentView('faculty-master')}
->
-  👨‍🏫 Faculty Master
-</button>
+            className={`nav-tab ${currentView === 'faculty-correction' ? 'active' : ''}`}
+            onClick={() => setCurrentView('faculty-correction')}
+          >
+            🔧 Faculty Name Correction
+          </button>
+          <button 
+            className={`nav-tab ${currentView === 'student-management' ? 'active' : ''}`}
+            onClick={() => setCurrentView('student-management')}
+          >
+            👥 Student Management
+          </button>
+          <button 
+            className={`nav-tab ${currentView === 'faculty-master' ? 'active' : ''}`}
+            onClick={() => setCurrentView('faculty-master')}
+          >
+            👨‍🏫 Faculty Master
+          </button>
 
-<button 
-  className={`nav-tab ${currentView === 'subject-master' ? 'active' : ''}`}
-  onClick={() => setCurrentView('subject-master')}
->
-  📚 Subject Master
-</button>
+          <button 
+            className={`nav-tab ${currentView === 'subject-master' ? 'active' : ''}`}
+            onClick={() => setCurrentView('subject-master')}
+          >
+            📚 Subject Master
+          </button>
 
-<button 
-  className={`nav-tab ${currentView === 'timetable' ? 'active' : ''}`}
-  onClick={() => setCurrentView('timetable')}
->
-  📅 Timetable
-</button>
+          <button 
+            className={`nav-tab ${currentView === 'timetable' ? 'active' : ''}`}
+            onClick={() => setCurrentView('timetable')}
+          >
+            📅 Timetable
+          </button>
 
           <button onClick={handleLogout} className="logout-btn-nav">
             🚪 Logout
@@ -1176,16 +1450,16 @@ const getBarChartData = () => {
         {currentView === 'faculty-tracking' && <FacultyTrackingPage />}
         {currentView === 'faculty-correction' && <FacultyNameCorrection />}
         {currentView === 'faculty-master' && <FacultyMaster />}
-{currentView === 'subject-master' && <SubjectMaster />}
-{currentView === 'timetable' && <TimetableManagement />}
+        {currentView === 'subject-master' && <SubjectMaster />}
+        {currentView === 'timetable' && <TimetableManagement />}
 
         {currentView === 'student-management' && (
-  <StudentManagement 
-    classSel={classSel}
-    branchSel={branchSel}
-    academicYear={academicYear}
-  />
-)}
+          <StudentManagement 
+            classSel={classSel}
+            branchSel={branchSel}
+            academicYear={academicYear}
+          />
+        )}
 
       </main>
     </div>

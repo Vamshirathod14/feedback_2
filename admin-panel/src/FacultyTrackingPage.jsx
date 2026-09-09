@@ -30,7 +30,7 @@ const FacultyTrackingPage = () => {
 
   const loadAllFaculties = async () => {
     try {
-      const response = await axios.get('https://feedback-mlan.onrender.com/all-faculties');
+      const response = await axios.get('https://feedback-2-backend.onrender.com/all-faculties');
       
       let facultiesData = [];
       
@@ -85,7 +85,7 @@ const FacultyTrackingPage = () => {
         if (!params[key]) delete params[key];
       });
       
-      const response = await axios.get('https://feedback-mlan.onrender.com/faculty-history', { params });
+      const response = await axios.get('https://feedback-2-backend.onrender.com/faculty-history', { params });
       
       let historyData = [];
       
